@@ -1,10 +1,3 @@
-# Systempakker Streamlit Community Cloud installerer med apt-get FØR appen starter (i tillegg til
-# requirements.txt, som bare håndterer Python-pakker via pip). Headless Chromium (brukt av
-# Playwright i miljodir_skrap.py, for å hente Miljødirektoratets høringer — se den filens
-# docstring for hvorfor et rent `requests`-kall ikke duger der) krever disse delte bibliotekene for
-# i det hele tatt å starte i et minimalt, hodeløst Debian-basert containermiljø som Streamlit Cloud.
-# Uten denne fila kan selve Chromium-binæren være nedlastet (se _proev_autoinstaller_chromium() i
-# miljodir_skrap.py) og likevel feile å starte, med en helt annen feilmelding om manglende .so-filer.
 libnss3
 libnspr4
 libatk1.0-0
