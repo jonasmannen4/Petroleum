@@ -55,6 +55,33 @@ class MiljodirektoratetFeil(Exception):
     """Feil ved henting fra Miljødirektoratet (nettverk, uventet sidestruktur, Playwright mangler)."""
 
 
+# Satt til True etter FØRSTE forsøk på å kjøre «playwright install chromium» selv (uansett om det
+# lyktes), slik at vi aldri prøver mer enn én gang per kjørende container/prosess — et nedlastings-
+# forsøk tar et tosifret antall sekunder, og skal ikke gjentas for hvert eneste klikk på
+# «Søk i høringer nå» hvis det først viste seg å ikke hjelpe (f.eks. ingen internettilgang ut).
+_FORSOKT_AUTOINSTALL = False
+
+
+def _proev_autoinstaller_chromium() -> None:
+    """Skyhostede miljøer (bl.a. Streamlit Community Cloud) installerer pakker fra requirements.txt
+    med pip, men kjører ALDRI «playwright install chromium» automatisk — det er et eget,
+    etterfølgende steg Playwright selv krever, og uten det finnes ingen nedlastet Chromium-binær i
+    det hele tatt (feilen «Executable doesn't exist at ...»). Lokalt har du typisk allerede kjørt
+    det manuelt én gang, så dette er i praksis bare relevant i skyen — men koster ingenting å prøve
+    overalt. Kjøres KUN som et siste forsøk når selve launch() har feilet, ikke proaktivt ved hver
+    økt (nedlastingen er for treg/dyr til det)."""
+    global _FORSOKT_AUTOINSTALL
+    if _FORSOKT_AUTOINSTALL:
+        return
+    _FORSOKT_AUTOINSTALL = True
+    import subprocess
+    import sys
+    subprocess.run(
+        [sys.executable, "-m", "playwright", "install", "chromium"],
+        check=False, capture_output=True, timeout=300,
+    )
+
+
 @contextmanager
 def _nettleserokt():
     """Åpner én hodeløs Chromium-nettleser (Playwright) og gir deg en «side» (Page) å navigere
@@ -73,10 +100,25 @@ def _nettleserokt():
         with sync_playwright() as p:
             try:
                 nettleser = p.chromium.launch(headless=True)
-            except Exception as e:
-                raise MiljodirektoratetFeil(
-                    f"Fikk ikke startet Chromium ({e}). Har du kjørt «playwright install chromium»?"
-                ) from e
+            except Exception as forste_feil:
+                # «Executable doesn't exist» er Playwright sin egen, faste feiltekst for nettopp
+                # det manglende nedlastings-steget over — prøv å installere og launch på nytt FØR
+                # vi gir opp, i stedet for å kreve at brukeren selv har terminaltilgang til skyen.
+                if "Executable doesn't exist" in str(forste_feil):
+                    _proev_autoinstaller_chromium()
+                    try:
+                        nettleser = p.chromium.launch(headless=True)
+                    except Exception as andre_feil:
+                        raise MiljodirektoratetFeil(
+                            f"Fikk ikke startet Chromium, selv etter et automatisk installasjonsforsøk "
+                            f"({andre_feil}). Dette skjer typisk i skyhostede miljøer uten egen "
+                            "terminaltilgang — si fra til den som vedlikeholder appen."
+                        ) from andre_feil
+                else:
+                    raise MiljodirektoratetFeil(
+                        f"Fikk ikke startet Chromium ({forste_feil}). Har du kjørt "
+                        "«playwright install chromium»?"
+                    ) from forste_feil
             try:
                 yield nettleser.new_page(user_agent=BRUKERAGENT)
             finally:
